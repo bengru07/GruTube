@@ -1,0 +1,22 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id         String   @id @db.Uuid
+  email      String   @unique
+  handle     String   @unique
+  name       String
+  profilePic String?
+  provider   String
+  externalId String
+  channelId  String   @unique
+  createdAt  DateTime @default(now())
+
+  @@map("users")
+}

@@ -1,0 +1,1 @@
+export const USER_CREATION_QUEUE = 'user_creation_queue';

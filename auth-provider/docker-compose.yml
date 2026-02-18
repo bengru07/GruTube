@@ -1,0 +1,98 @@
+###
+### Since this is my first time using Citus-Workers and rabbit-mq, I have decided to tag each section since this is a learning and reference project.
+### Keywords: Command Query Responsibility Segregation
+###
+
+version: "3.8"
+services:
+  # Citus-Coordinator for sub-workers
+  coordinator:
+    image: citusdata/citus:12.1
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=youtube_clone
+
+  # The "Storage" (Worker 1)
+  worker1:
+    image: citusdata/citus:12.1
+    labels:
+      - "com.citusdata.role=worker"
+    depends_on: [coordinator]
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+
+  # The "Storage" (Worker 2)
+  worker2:
+    image: citusdata/citus:12.1
+    labels:
+      - "com.citusdata.role=worker"
+    depends_on: [coordinator]
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+
+  # Citus-Manager for worker-aggregation
+  manager:
+    image: citusdata/membership-manager:0.3.0
+    depends_on: [coordinator]
+    environment:
+      - CITUS_HOST=coordinator
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=youtube_clone
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - healthcheck_data:/healthcheck
+
+  # Message-Broker for auth- / user-related Tasks
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  # Session & Rate Limit Cache
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  # Service A: The Gateway API (Producers)
+  auth-api:
+    build: ./api
+    ports:
+      - "${APPLICATION_PORT}:${APPLICATION_PORT}"
+    environment:
+      - APPLICATION_PORT=${APPLICATION_PORT}
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - USE_GOOGLE_AUTH=${USE_GOOGLE_AUTH}
+      - USE_GITHUB_AUTH=${USE_GITHUB_AUTH}
+    depends_on:
+      - rabbitmq
+      - redis
+
+  # Service B: The Database Worker (Consumers)
+  auth-worker:
+    build:
+      context: ./worker
+      args:
+        - DATABASE_URL=${DATABASE_URL}
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      - coordinator
+      - rabbitmq
+    command: >
+      sh -c "npx prisma generate && npx prisma db push && npm start"
+volumes:
+  healthcheck_data:
